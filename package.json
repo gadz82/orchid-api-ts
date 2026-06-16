@@ -1,0 +1,82 @@
+{
+    "name": "@orchid-ai/orchid-api",
+    "version": "0.1.0",
+    "description": "Fastify HTTP server for the Orchid multi-agent framework — TypeScript port of orchid-api",
+    "license": "MIT",
+    "type": "module",
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "bin": {
+        "orchid-api": "./dist/cli.js"
+    },
+    "exports": {
+        ".": {
+            "types": "./dist/index.d.ts",
+            "import": "./dist/index.js"
+        },
+        "./app": {
+            "types": "./dist/app.d.ts",
+            "import": "./dist/app.js"
+        },
+        "./settings": {
+            "types": "./dist/settings.d.ts",
+            "import": "./dist/settings.js"
+        },
+        "./context": {
+            "types": "./dist/context.d.ts",
+            "import": "./dist/context.js"
+        },
+        "./lifecycle": {
+            "types": "./dist/lifecycle.d.ts",
+            "import": "./dist/lifecycle.js"
+        }
+    },
+    "files": [
+        "dist",
+        "README.md",
+        "LICENSE"
+    ],
+    "scripts": {
+        "build": "tsc -p tsconfig.build.json",
+        "dev": "tsx watch src/cli.ts",
+        "start": "node dist/cli.js",
+        "test": "vitest run",
+        "test:watch": "vitest",
+        "test:coverage": "vitest run --coverage",
+        "lint": "eslint src --ext .ts",
+        "typecheck": "tsc --noEmit",
+        "format": "prettier --write \"src/**/*.ts\""
+    },
+    "engines": {
+        "node": ">=20.0.0"
+    },
+    "dependencies": {
+        "@fastify/cors": "^10.0.0",
+        "@fastify/multipart": "^9.0.0",
+        "@fastify/sensible": "^6.0.0",
+        "@orchid-ai/orchid": "*",
+        "fastify": "^5.0.0",
+        "fastify-plugin": "^5.0.0",
+        "pino": "^9.0.0",
+        "undici": "^6.0.0",
+        "yaml": "^2.6.0",
+        "zod": "^3.23.0"
+    },
+    "devDependencies": {
+        "@types/node": "^22.0.0",
+        "@typescript-eslint/eslint-plugin": "^8.0.0",
+        "@typescript-eslint/parser": "^8.0.0",
+        "eslint": "^9.0.0",
+        "typescript-eslint": "^8.0.0",
+        "prettier": "^3.0.0",
+        "tsx": "^4.0.0",
+        "typescript": "^5.6.0",
+        "vitest": "^2.0.0",
+        "@vitest/coverage-v8": "^2.0.0",
+        "@semantic-release/changelog": "^6.0.0",
+        "@semantic-release/git": "^10.0.0",
+        "@semantic-release/github": "^11.0.0",
+        "@semantic-release/npm": "^12.0.0",
+        "semantic-release": "^24.0.0"
+    }
+}
