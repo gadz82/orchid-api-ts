@@ -1,5 +1,4 @@
 import type { FastifyInstance } from "fastify";
-import fp from "fastify-plugin";
 
 import { getMCPGatewayStateStore } from "../context.js";
 
@@ -203,7 +202,7 @@ async function mcpGatewayStateRouter(fastify: FastifyInstance): Promise<void> {
     });
 }
 
-export const router = fp(mcpGatewayStateRouter, { name: "mcpGatewayState" });
+export const router = mcpGatewayStateRouter;
 
 function serialiseAuthCode(record: {
     code: string;

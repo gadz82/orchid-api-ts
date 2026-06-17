@@ -5,7 +5,8 @@ import fp from "fastify-plugin";
 
 import { resolveAuthContext } from "../auth.js";
 import { getAuthContext } from "../auth.js";
-import { getChatStorage, getEventsRuntime } from "../context.js";
+import { getChatStorage, getEventsRuntime, isEventsEnabled } from "../context.js";
+import { applyCorsHeaders } from "../helpers/responseHeaders.js";
 import { requireChatOwnerOrAdmin, serialiseRun } from "./_events.js";
 
 async function chatEventsRouter(fastify: FastifyInstance): Promise<void> {
@@ -13,6 +14,31 @@ async function chatEventsRouter(fastify: FastifyInstance): Promise<void> {
     fastify.get("/chats/:chatId/events/stream", async (request, reply) => {
         const auth = getAuthContext(request);
         const chatRepo = getChatStorage() as OrchidChatStorage;
+        const params = request.params as { chatId: string };
+        await requireChatOwnerOrAdmin(params.chatId, auth, chatRepo);
+
+        if (!isEventsEnabled()) {
+            // Match orchid-api (Python): get_events_runtime raises 503
+            // with {"detail": "events subsystem is disabled ..."} when
+            // events.enabled=false in agents.yaml. The frontend's
+            // EventSource auto-reconnects on 503 — same as Python.
+            applyCorsHeaders(reply);
+            reply.raw.writeHead(503, {"Content-Type": "application/json; charset=utf-8"});
+            reply.raw.end(
+                JSON.stringify({
+                    detail: "events subsystem is disabled (events.enabled=false in agents.yaml)",
+                }),
+            );
+            return;
+        }
+
+        applyCorsHeaders(reply);
+        reply.raw.writeHead(200, {
+            "Content-Type": "text/event-stream",
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",
+        });
+
         const events = getEventsRuntime<{
             jobStore: OrchidJobStore;
             eventStream?: {
@@ -25,15 +51,6 @@ async function chatEventsRouter(fastify: FastifyInstance): Promise<void> {
                 }>;
             };
         }>();
-        const params = request.params as { chatId: string };
-        await requireChatOwnerOrAdmin(params.chatId, auth, chatRepo);
-
-        reply.raw.writeHead(200, {
-            "Content-Type": "text/event-stream",
-            "Cache-Control": "no-cache, no-transform",
-            "X-Accel-Buffering": "no",
-        });
-
         const inFlight = await events.jobStore.list({
             chatBindingChatId: params.chatId,
             statuses: [JobStatus.PENDING, JobStatus.RUNNING],

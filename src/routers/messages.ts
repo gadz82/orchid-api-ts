@@ -18,6 +18,19 @@ import { getSettings } from "../settings.js";
 import { getOrchid } from "../context.js";
 
 const settings = getSettings();
+
+/** Pull the last AI message's text content out of a graph messages array. */
+function extractLastAiText(messages: unknown): string {
+    if (!Array.isArray(messages)) return "";
+    for (let i = messages.length - 1; i >= 0; i--) {
+        const m = messages[i] as Record<string, unknown>;
+        const t = typeof m["type"] === "string" ? m["type"] : m["role"];
+        if (t !== "ai" && t !== "assistant") continue;
+        const c = m["content"];
+        if (typeof c === "string" && c.trim()) return c;
+    }
+    return "";
+}
 const messagesRateLimit = createRateLimit("messages", settings.rate_limit_messages_per_minute, 60);
 const uploadsRateLimit = createRateLimit("uploads", settings.rate_limit_uploads_per_minute, 60);
 
@@ -75,7 +88,7 @@ async function messagesRouter(fastify: FastifyInstance): Promise<void> {
                 const graph = (
                     orchid as unknown as {
                         graph?: {
-                            ainvoke(
+                            invoke(
                                 state: unknown,
                                 config: unknown,
                             ): Promise<Record<string, unknown>>;
@@ -86,12 +99,26 @@ async function messagesRouter(fastify: FastifyInstance): Promise<void> {
                     throw Object.assign(new Error("Graph not initialised"), { statusCode: 503 });
                 }
 
-                const result = await graph.ainvoke(prepared.initialState, config);
+                // `Pregel` in @langchain/langgraph 0.2.x exposes `invoke()`
+                // (sync, returns a Promise) — there is no `ainvoke()`.
+                // (Python's `CompiledGraph.ainvoke` is mirrored in TS by
+                // `invoke`.)
+                const result = await graph.invoke(prepared.initialState, config);
+                // The graph state uses `finalResponse` (camelCase, per
+                // the LangGraph channel definition). Python parity is
+                // `final_response` (snake_case) but the TS port standard
+                // is camelCase channel names. Read both for
+                // forward-compat.
+                const resultObj = result as Record<string, unknown>;
                 const responseText =
-                    ((result as Record<string, unknown>)["final_response"] as string) ||
+                    (resultObj["finalResponse"] as string) ||
+                    (resultObj["final_response"] as string) ||
+                    extractLastAiText(resultObj["messages"]) ||
                     "No response generated.";
                 const agentsUsed =
-                    ((result as Record<string, unknown>)["active_agents"] as string[]) || [];
+                    (resultObj["activeAgents"] as string[]) ||
+                    (resultObj["active_agents"] as string[]) ||
+                    [];
 
                 // Persist messages
                 await chatRepo.addMessage(params.chatId, "user", prepared.message);

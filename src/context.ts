@@ -167,3 +167,8 @@ export function getEventsRuntime<T = unknown>(): T {
     }
     return appCtx.events as T;
 }
+
+export function isEventsEnabled(): boolean {
+    const runtime = appCtx.events as { enabled?: boolean } | null;
+    return runtime?.enabled === true;
+}

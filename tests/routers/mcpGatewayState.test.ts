@@ -142,4 +142,82 @@ describe("mcp-gateway-state router", () => {
 
         await app.close();
     });
+
+    describe("when MCP_GATEWAY_STATE_SERVICE_TOKEN is not set", () => {
+        it("returns 503 for /mcp-gateway/state/* routes", async () => {
+            delete process.env["MCP_GATEWAY_STATE_SERVICE_TOKEN"];
+
+            const { appCtx } = await import("../../src/context.js");
+            appCtx.orchid = {
+                runtime: {
+                    mcpGatewayStateStore: {
+                        register: async () => {},
+                        get: async () => null,
+                        put: async () => {},
+                        getByUpstreamState: async () => null,
+                        update: async () => {},
+                        consume: async () => null,
+                        issue: async (t) => t as any,
+                        getByAccessToken: async () => null,
+                        getByRefreshToken: async () => null,
+                        revoke: async () => true,
+                    },
+                },
+                close: async () => {},
+            } as any;
+
+            const { router } = await import("../../src/routers/mcpGatewayState.js");
+            const app = Fastify();
+            await app.register(router);
+            await app.ready();
+
+            const res = await app.inject({
+                method: "POST",
+                url: "/mcp-gateway/state/clients",
+                payload: {
+                    client_id: "client-1",
+                    redirect_uris: ["http://localhost/cb"],
+                },
+            });
+            expect(res.statusCode).toBe(503);
+            expect(res.json().detail).toBe("MCP gateway state endpoints are disabled");
+
+            await app.close();
+        });
+
+        it("does not leak its preHandler to sibling routes", async () => {
+            delete process.env["MCP_GATEWAY_STATE_SERVICE_TOKEN"];
+
+            const { appCtx } = await import("../../src/context.js");
+            appCtx.orchid = {
+                runtime: {
+                    mcpGatewayStateStore: {
+                        register: async () => {},
+                        get: async () => null,
+                        put: async () => {},
+                        getByUpstreamState: async () => null,
+                        update: async () => {},
+                        consume: async () => null,
+                        issue: async (t) => t as any,
+                        getByAccessToken: async () => null,
+                        getByRefreshToken: async () => null,
+                        revoke: async () => true,
+                    },
+                },
+                close: async () => {},
+            } as any;
+
+            const { router } = await import("../../src/routers/mcpGatewayState.js");
+            const app = Fastify();
+            app.get("/chats", async () => ({ ok: true }));
+            await app.register(router);
+            await app.ready();
+
+            const res = await app.inject({ method: "GET", url: "/chats" });
+            expect(res.statusCode).toBe(200);
+            expect(res.json()).toEqual({ ok: true });
+
+            await app.close();
+        });
+    });
 });

@@ -322,4 +322,56 @@ describe("event routers", () => {
 
         await app.close();
     });
+
+    it("chat events stream soft-fails with :idle when events subsystem is disabled", async () => {
+        const { appCtx } = await import("../../src/context.js");
+        appCtx.identityResolver = new TestIdentityResolver();
+        appCtx.orchid = {
+            runtime: { chatStorage: null },
+            chatStorage: {
+                getChat: async (chatId: string) =>
+                    chatId === "chat-1"
+                        ? {
+                              id: "chat-1",
+                              title: "Test",
+                              tenantId: "tenant-1",
+                              userId: "user-1",
+                              createdAt: new Date(),
+                              updatedAt: new Date(),
+                              isShared: false,
+                          }
+                        : null,
+                getMessages: async () => [],
+                addMessage: async () => ({
+                    id: "m1",
+                    role: "user",
+                    content: "test",
+                    agentsUsed: [],
+                    createdAt: new Date(),
+                }),
+                updateTitle: async () => {},
+                initDb: async () => {},
+                close: async () => {},
+            },
+            close: async () => {},
+        } as any;
+        appCtx.events = { enabled: false };
+
+        const { router } = await import("../../src/routers/chatEvents.js");
+        const app = Fastify();
+        await app.register(router);
+        await app.ready();
+
+        const res = await app.inject({
+            method: "GET",
+            url: "/chats/chat-1/events/stream",
+            headers: { authorization: "Bearer user-token" },
+        });
+        expect(res.statusCode).toBe(503);
+        expect(res.json()).toEqual({
+            detail: "events subsystem is disabled (events.enabled=false in agents.yaml)",
+        });
+
+        await app.close();
+    });
 });
