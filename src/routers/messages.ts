@@ -65,6 +65,8 @@ async function messagesRouter(fastify: FastifyInstance): Promise<void> {
 
             const files: Array<{ filename: string; data: Buffer; mimetype: string }> = [];
 
+            const hasCheckpointer = !!((orchid.runtime as unknown as { checkpointer?: unknown }).checkpointer);
+
             const prepared = await prepareGraphState(
                 params.chatId,
                 message,
@@ -74,6 +76,7 @@ async function messagesRouter(fastify: FastifyInstance): Promise<void> {
                 chatRepo,
                 { reader: (orchid as unknown as { reader?: unknown }).reader },
                 mcpTokenStore,
+                hasCheckpointer,
             );
 
             const config = {

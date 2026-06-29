@@ -5,7 +5,10 @@ import multipart from "@fastify/multipart";
 import cors from "@fastify/cors";
 import { OrchidAuthContext } from "@orchid-ai/orchid/core";
 
-async function buildTestApp(): Promise<FastifyInstance> {
+async function buildTestApp(opts?: {
+    stream?: () => AsyncIterable<unknown>;
+    messages?: { role: string; content: string }[];
+}): Promise<FastifyInstance> {
     const app = Fastify();
 
     process.env["DEV_AUTH_BYPASS"] = "true";
@@ -23,7 +26,7 @@ async function buildTestApp(): Promise<FastifyInstance> {
                 updatedAt: new Date(),
                 isShared: false,
             }),
-            getMessages: async () => [],
+            getMessages: async () => opts?.messages ?? [],
             addMessage: async () => ({
                 id: "m1",
                 role: "user",
@@ -35,11 +38,15 @@ async function buildTestApp(): Promise<FastifyInstance> {
             initDb: async () => {},
             close: async () => {},
         },
-        graph: {},
-        stream: async () => {
-            return (async function* () {
-                yield ["values", { final_response: "Hello streaming!" }];
-            })();
+        graph: {
+            stream: opts?.stream ?? (async function* () {
+                yield {
+                    supervisor: {
+                        messages: [{ role: "ai", content: "Hello streaming!" }],
+                        finalResponse: "Hello streaming!",
+                    },
+                };
+            }),
         },
         runtime: {
             config: { agents: {} },
@@ -91,6 +98,8 @@ describe("streaming router", () => {
         });
         // Streaming endpoint uses raw reply, so status may differ
         expect(res.statusCode).toBe(200);
+        expect(res.body).toContain('data: {"type":"token","content":"Hello streaming!"}');
+        expect(res.body).toContain('"type":"done"');
     });
 
     it("GET /chats/capabilities returns capabilities", async () => {
@@ -153,10 +162,6 @@ describe("streaming router", () => {
         appCtx.orchid = {
             ...appCtx.orchid,
             graph: null,
-            stream: async () =>
-                (async function* () {
-                    yield ["values", { final_response: "should-not-reach" }];
-                })(),
         } as unknown as NonNullable<typeof appCtx.orchid>;
 
         const createRes = await app.inject({
@@ -173,6 +178,63 @@ describe("streaming router", () => {
         });
         expect(res.statusCode).toBe(200);
         expect(res.body).toContain("Agent graph not available");
+    });
+
+    it("does not replay prior assistant responses on follow-up turns", async () => {
+        const priorAssistant = "Previous turn response";
+        app = await buildTestApp({
+            messages: [
+                { role: "user", content: "First question" },
+                { role: "assistant", content: priorAssistant },
+            ],
+            stream: async function* () {
+                // Simulate updates mode: each chunk is the delta written by
+                // a single node.  The supervisor routing step does not
+                // include the old assistant message.
+                yield {
+                    supervisor: {
+                        messages: [{ role: "ai", content: "[Supervisor] Parallel dispatch: basketball" }],
+                        activeAgents: ["basketball"],
+                        pendingAgents: [],
+                        executionMode: "parallel",
+                    },
+                };
+                yield {
+                    basketball_agent: {
+                        messages: [
+                            { role: "ai", content: "[Basketball Agent] New turn answer" },
+                        ],
+                        activeAgents: [],
+                    },
+                };
+                yield {
+                    supervisor: {
+                        messages: [{ role: "ai", content: "New turn answer" }],
+                        finalResponse: "New turn answer",
+                        activeAgents: [],
+                        pendingAgents: [],
+                    },
+                };
+            },
+        });
+
+        const createRes = await app.inject({
+            method: "POST",
+            url: "/chats",
+            payload: {},
+        });
+        const chat = JSON.parse(createRes.body);
+
+        const res = await app.inject({
+            method: "POST",
+            url: `/chats/${chat.id}/messages/stream`,
+            payload: { message: "Follow up" },
+        });
+
+        expect(res.statusCode).toBe(200);
+        expect(res.body).toContain('"type":"token","content":"New turn answer"');
+        expect(res.body).not.toContain(priorAssistant);
+        expect(res.body).not.toContain("[Supervisor] Parallel dispatch");
     });
 });
 
@@ -204,11 +266,16 @@ describe("streaming CORS", () => {
                 initDb: async () => {},
                 close: async () => {},
             },
-            graph: {},
-            stream: async () =>
-                (async function* () {
-                    yield ["values", { final_response: "ok" }];
-                })(),
+            graph: {
+                stream: async function* () {
+                    yield {
+                        supervisor: {
+                            messages: [{ role: "ai", content: "ok" }],
+                            finalResponse: "ok",
+                        },
+                    };
+                },
+            },
             runtime: { config: { agents: {} }, chatStorage: null },
             reader: null,
             close: async () => {},
@@ -255,4 +322,3 @@ describe("streaming CORS", () => {
         expect(res.headers["access-control-allow-credentials"]).toBe("true");
     });
 });
-

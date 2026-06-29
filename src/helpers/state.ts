@@ -11,6 +11,14 @@ export interface PreparedGraphState {
     chatId: string;
 }
 
+/**
+ * Build the initial graph state for a new message.
+ *
+ * When a checkpointer is active, only the new user message is sent —
+ * LangGraph restores prior state from the checkpointer. When no
+ * checkpointer is configured, all persisted conversation history is
+ * prepended so the graph has full context (Python parity).
+ */
 export async function prepareGraphState(
     chatId: string,
     message: string,
@@ -20,18 +28,33 @@ export async function prepareGraphState(
     chatRepo: OrchidChatStorage,
     _runtime: unknown,
     _mcpTokenStore: unknown,
+    hasCheckpointer = false,
 ): Promise<PreparedGraphState> {
     const historyMessages = await chatRepo.getMessages(chatId);
     const historyRows = historyMessages.length;
 
+    const messages: Array<Record<string, unknown>> = [];
+
+    // Prepend persisted history when there's no checkpointer to
+    // restore it (Python parity: `build_initial_graph_state`).
+    if (!hasCheckpointer) {
+        for (const row of historyMessages) {
+            if (row.role === "user") {
+                messages.push({ type: "human", content: row.content, id: row.id });
+            } else if (row.role === "assistant") {
+                messages.push({ type: "ai", content: row.content, id: row.id });
+            }
+        }
+    }
+
+    messages.push({
+        type: "human",
+        content: message,
+        id: crypto.randomUUID(),
+    });
+
     const state: Record<string, unknown> = {
-        messages: [
-            {
-                type: "human",
-                content: message,
-                id: crypto.randomUUID(),
-            },
-        ],
+        messages,
         chat_id: chatId,
     };
 
