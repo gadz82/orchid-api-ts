@@ -1,4 +1,5 @@
 import type { Orchid, OrchidFactoryOverrides } from "@orchid-ai/orchid";
+import { runStartupHooks } from "@orchid-ai/orchid";
 import type { OrchidOAuthStateStore } from "@orchid-ai/orchid/mcp";
 import type { OrchidChatStorage } from "@orchid-ai/orchid/persistence";
 import type {
@@ -107,6 +108,13 @@ export async function setupOrchid(settings?: Settings): Promise<void> {
     }
 
     await initialiseRuntimeStores(s);
+
+    // Startup hook (RAG seeding, etc.)
+    try {
+        await runStartupHooks(s.startup_hook, appCtx.orchid);
+    } catch {
+        // Swallow — startup hook failures never abort startup
+    }
 
     // OAuth state store
     const mcpModule = await import("@orchid-ai/orchid/mcp");
@@ -225,7 +233,7 @@ async function initialiseRuntimeStores(settings: Settings): Promise<void> {
     };
 
     if (!runtime.chatStorage) {
-        const chatStorage = buildChatStorageInstance(
+        const chatStorage = await buildChatStorageInstance(
             persistence,
             settings.chat_storage_class,
             settings.chat_db_dsn,
@@ -235,7 +243,7 @@ async function initialiseRuntimeStores(settings: Settings): Promise<void> {
     }
 
     if (!runtime.mcpTokenStore) {
-        const tokenStore = buildMCPTokenStoreInstance(
+        const tokenStore = await buildMCPTokenStoreInstance(
             persistence,
             settings.mcp_token_store_class,
             settings.mcp_token_store_dsn,
@@ -245,7 +253,7 @@ async function initialiseRuntimeStores(settings: Settings): Promise<void> {
     }
 
     if (!runtime.mcpClientRegistrationStore) {
-        const registrationStore = buildRegistrationStoreInstance(
+        const registrationStore = await buildRegistrationStoreInstance(
             persistence,
             settings.mcp_client_registration_store_class,
             settings.mcp_client_registration_store_dsn,
@@ -255,7 +263,7 @@ async function initialiseRuntimeStores(settings: Settings): Promise<void> {
     }
 
     if (!runtime.mcpGatewayStateStore) {
-        const gatewayStateStore = buildGatewayStateStoreInstance(
+        const gatewayStateStore = await buildGatewayStateStoreInstance(
             persistence,
             settings.mcp_gateway_state_store_class,
             settings.mcp_gateway_state_store_dsn,
@@ -265,60 +273,93 @@ async function initialiseRuntimeStores(settings: Settings): Promise<void> {
     }
 }
 
-function buildChatStorageInstance(
+async function buildChatStorageInstance(
     persistence: typeof import("@orchid-ai/orchid/persistence"),
     className: string,
     dsn: string,
-): OrchidChatStorage {
+): Promise<OrchidChatStorage> {
     const resolved = normaliseBuiltinClass(className, "chat");
     if (resolved === "sqlite") {
         return new persistence.OrchidSQLiteChatStorage(dsn);
     }
-    throw new Error(`Unsupported chat storage class: ${className}`);
+    const cls = (await importStorageClass(className)) as new (opts: { dsn: string }) => OrchidChatStorage;
+    return new cls({ dsn });
 }
 
-function buildMCPTokenStoreInstance(
+async function buildMCPTokenStoreInstance(
     persistence: typeof import("@orchid-ai/orchid/persistence"),
     className: string,
     dsn: string,
-): OrchidMCPTokenStore {
+): Promise<OrchidMCPTokenStore> {
     const resolved = normaliseBuiltinClass(className, "mcpToken");
     if (resolved === "sqlite") {
         return new persistence.OrchidSQLiteMCPTokenStore(dsn);
     }
-    throw new Error(`Unsupported MCP token store class: ${className}`);
+    const cls = (await importStorageClass(className)) as new (opts: { dsn: string }) => OrchidMCPTokenStore;
+    return new cls({ dsn });
 }
 
-function buildRegistrationStoreInstance(
+async function buildRegistrationStoreInstance(
     persistence: typeof import("@orchid-ai/orchid/persistence"),
     className: string,
     dsn: string,
-): OrchidMCPClientRegistrationStoreABC {
+): Promise<OrchidMCPClientRegistrationStoreABC> {
     const resolved = normaliseBuiltinClass(className, "mcpRegistration");
     if (resolved === "sqlite") {
         return new persistence.OrchidSQLiteMCPClientRegistrationStore(dsn);
     }
-    throw new Error(`Unsupported MCP client registration store class: ${className}`);
+    const cls = (await importStorageClass(className)) as new (opts: {
+        dsn: string;
+    }) => OrchidMCPClientRegistrationStoreABC;
+    return new cls({ dsn });
 }
 
-function buildGatewayStateStoreInstance(
+async function buildGatewayStateStoreInstance(
     persistence: typeof import("@orchid-ai/orchid/persistence"),
     className: string,
     dsn: string,
-): OrchidMCPGatewayClientStoreABC &
-    OrchidMCPGatewayAuthCodeStoreABC &
-    OrchidMCPGatewayTokenStoreABC {
+): Promise<
+    OrchidMCPGatewayClientStoreABC & OrchidMCPGatewayAuthCodeStoreABC & OrchidMCPGatewayTokenStoreABC
+> {
     const resolved = normaliseBuiltinClass(className, "mcpGatewayState");
     if (resolved === "sqlite") {
         return new persistence.OrchidSQLiteMCPGatewayStateStore(dsn);
     }
-    throw new Error(`Unsupported MCP gateway state store class: ${className}`);
+    const cls = (await importStorageClass(className)) as new (opts: {
+        dsn: string;
+    }) => OrchidMCPGatewayClientStoreABC &
+        OrchidMCPGatewayAuthCodeStoreABC &
+        OrchidMCPGatewayTokenStoreABC;
+    return new cls({ dsn });
+}
+
+async function importStorageClass(className: string): Promise<unknown> {
+    const parts = className.split("#");
+    const modulePath = parts[0]!;
+    const exportName = parts.length > 1 ? parts[1] : "default";
+
+    const { pathToFileURL } = await import("node:url");
+    const { resolve } = await import("node:path");
+
+    let resolvedPath: string;
+    if (modulePath.startsWith(".")) {
+        resolvedPath = resolve(process.cwd(), modulePath);
+    } else {
+        resolvedPath = modulePath;
+    }
+
+    const mod = await import(pathToFileURL(resolvedPath).href);
+    const cls = mod[exportName] ?? mod;
+    if (typeof cls !== "function") {
+        throw new Error(`Storage class '${className}' resolved to non-function`);
+    }
+    return cls;
 }
 
 function normaliseBuiltinClass(
     className: string,
-    kind: "chat" | "mcpToken" | "mcpRegistration" | "mcpGatewayState",
-): "sqlite" {
+    _kind: "chat" | "mcpToken" | "mcpRegistration" | "mcpGatewayState",
+): "sqlite" | null {
     const trimmed = className.trim();
     if (trimmed === "" || trimmed === "sqlite") {
         return "sqlite";
@@ -335,5 +376,5 @@ function normaliseBuiltinClass(
     const alias = aliases[trimmed];
     if (alias) return alias;
 
-    throw new Error(`Unsupported ${kind} class: ${className}`);
+    return null;
 }

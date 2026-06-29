@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
+import { applyYamlToEnv } from "@orchid-ai/orchid/config";
 
 const SettingsSchema = z.object({
     // Auth
@@ -106,34 +107,6 @@ const SettingsSchema = z.object({
 
 export type Settings = z.infer<typeof SettingsSchema>;
 
-function applyYamlToEnv(configPath: string): void {
-    if (!configPath || configPath.endsWith(".md")) return;
-    if (!existsSync(configPath)) return;
-
-    try {
-        const raw = readFileSync(configPath, "utf-8");
-        const data = parseYaml(raw) as Record<string, unknown> | null;
-        if (!data || typeof data !== "object") return;
-
-        const skipSections = new Set(["api"]);
-        for (const [sectionKey, sectionValue] of Object.entries(data)) {
-            if (skipSections.has(sectionKey)) continue;
-            if (sectionValue && typeof sectionValue === "object" && !Array.isArray(sectionValue)) {
-                for (const [key, value] of Object.entries(
-                    sectionValue as Record<string, unknown>,
-                )) {
-                    const envVar = YAML_TO_ENV[key];
-                    if (envVar && !(envVar in process.env)) {
-                        process.env[envVar] = String(value);
-                    }
-                }
-            }
-        }
-    } catch {
-        // YAML parse failures are non-fatal at import time
-    }
-}
-
 function applyApiYamlConfig(configPath: string): void {
     if (!configPath || configPath.endsWith(".md")) return;
     if (!existsSync(configPath)) return;
@@ -163,14 +136,16 @@ function applyApiYamlConfig(configPath: string): void {
     }
 }
 
-const YAML_TO_ENV: Record<string, string> = {};
-
 // Apply YAML config at module import time (before any Settings instantiation)
 (function applyYamlConfig() {
     const configPath = process.env["ORCHID_CONFIG"] || "";
     if (!configPath) return;
 
-    applyYamlToEnv(configPath);
+    try {
+        applyYamlToEnv(configPath, { skipSections: new Set(["api"]) });
+    } catch {
+        // YAML parse failures are non-fatal at import time
+    }
     applyApiYamlConfig(configPath);
 })();
 
