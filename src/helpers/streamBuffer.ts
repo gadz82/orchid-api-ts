@@ -149,7 +149,7 @@ export function processStreamChunk(
                 (partialObj["final_response"] as string) ||
                 (partialObj["finalResponse"] as string) ||
                 null;
-            if (finalResp) {
+            if (finalResp && typeof finalResp === "string") {
                 pushTokenDelta(finalResp, state, events);
             }
             continue;
@@ -207,18 +207,16 @@ function extractSkillEvents(
     }
 }
 
-function pushTokenDelta(content: string, state: StreamProcessingState, events: StreamEvent[]): void {
-    if (!content) return;
+function pushTokenDelta(content: unknown, state: StreamProcessingState, events: StreamEvent[]): void {
+    const text = typeof content === "string" ? content : JSON.stringify(content);
+    if (!text) return;
 
-    // When content replaces (rather than extends) the accumulated response
-    // (e.g. synthesis overwrites agent output), reset tracking so the delta
-    // is correct.
-    if (state.fullResponse && !content.startsWith(state.fullResponse)) {
+    if (state.fullResponse && !text.startsWith(state.fullResponse)) {
         state.fullResponse = "";
     }
-    if (content === state.fullResponse) return;
+    if (text === state.fullResponse) return;
 
-    const delta = content.slice(state.fullResponse.length);
-    state.fullResponse = content;
+    const delta = text.slice(state.fullResponse.length);
+    state.fullResponse = text;
     events.push(createChunkEvent(delta));
 }
