@@ -168,6 +168,17 @@ export function getEventsRuntime<T = unknown>(): T {
     return appCtx.events as T;
 }
 
+export function getJobStoreOrThrow(): unknown {
+    const runtime = appCtx.events as { enabled?: boolean; jobStore?: unknown } | null;
+    if (!runtime || !runtime.enabled) {
+        throw Object.assign(new Error("Events subsystem is disabled"), { statusCode: 503 });
+    }
+    if (!runtime.jobStore) {
+        throw Object.assign(new Error("Job store is not initialised"), { statusCode: 503 });
+    }
+    return runtime.jobStore;
+}
+
 export function isEventsEnabled(): boolean {
     const runtime = appCtx.events as { enabled?: boolean } | null;
     return runtime?.enabled === true;

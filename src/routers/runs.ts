@@ -4,7 +4,7 @@ import fp from "fastify-plugin";
 
 import { resolveAuthContext } from "../auth.js";
 import { getAuthContext } from "../auth.js";
-import { getEventsRuntime } from "../context.js";
+import { getEventsRuntime, getJobStoreOrThrow } from "../context.js";
 import { isRunVisible, parseSince, serialiseRun } from "./_events.js";
 
 async function runsRouter(fastify: FastifyInstance): Promise<void> {
@@ -12,16 +12,14 @@ async function runsRouter(fastify: FastifyInstance): Promise<void> {
 
     fastify.get("/runs", async (request, reply) => {
         const auth = getAuthContext(request);
-        const events = getEventsRuntime<{
-            jobStore: OrchidJobStore;
-        }>();
+        const jobStore = getJobStoreOrThrow() as OrchidJobStore;
         const query = request.query as {
             status?: string;
             trigger_id?: string;
             since?: string;
             limit?: string;
         };
-        const rows = await events.jobStore.list({
+        const rows = await jobStore.list({
             triggerId: query.trigger_id,
             status: query.status,
             since: parseSince(query.since) ?? undefined,
@@ -33,11 +31,9 @@ async function runsRouter(fastify: FastifyInstance): Promise<void> {
 
     fastify.get("/runs/:runId", async (request, reply) => {
         const auth = getAuthContext(request);
-        const events = getEventsRuntime<{
-            jobStore: OrchidJobStore;
-        }>();
+        const jobStore = getJobStoreOrThrow() as OrchidJobStore;
         const params = request.params as { runId: string };
-        const run = await events.jobStore.get(params.runId);
+        const run = await jobStore.get(params.runId);
         if (!run || !isRunVisible(run, auth)) {
             return reply.status(404).send({ detail: "not found" });
         }
@@ -46,8 +42,8 @@ async function runsRouter(fastify: FastifyInstance): Promise<void> {
 
     fastify.get("/runs/:runId/stream", async (request, reply) => {
         const auth = getAuthContext(request);
+        const jobStore = getJobStoreOrThrow() as OrchidJobStore;
         const events = getEventsRuntime<{
-            jobStore: OrchidJobStore;
             eventStream?: {
                 subscribeRun(runId: string): AsyncIterable<{
                     type: string;
@@ -58,7 +54,7 @@ async function runsRouter(fastify: FastifyInstance): Promise<void> {
             };
         }>();
         const params = request.params as { runId: string };
-        const run = await events.jobStore.get(params.runId);
+        const run = await jobStore.get(params.runId);
         if (!run || !isRunVisible(run, auth)) {
             return reply.status(404).send({ detail: "not found" });
         }
@@ -86,11 +82,9 @@ async function runsRouter(fastify: FastifyInstance): Promise<void> {
 
     fastify.post("/runs/:runId/cancel", async (request, reply) => {
         const auth = getAuthContext(request);
-        const events = getEventsRuntime<{
-            jobStore: OrchidJobStore;
-        }>();
+        const jobStore = getJobStoreOrThrow() as OrchidJobStore;
         const params = request.params as { runId: string };
-        const run = await events.jobStore.get(params.runId);
+        const run = await jobStore.get(params.runId);
         if (!run || !isRunVisible(run, auth)) {
             return reply.status(404).send({ detail: "not found" });
         }
@@ -98,21 +92,24 @@ async function runsRouter(fastify: FastifyInstance): Promise<void> {
             run.status = JobStatus.CANCELLED;
             run.finishedAt = new Date();
             run.error = "cancelled by operator";
-            await events.jobStore.update(run);
+            await jobStore.update(run);
         }
         return reply.send(serialiseRun(run, true));
     });
 
     fastify.post("/runs/:runId/retry", async (request, reply) => {
         const auth = getAuthContext(request);
+        const jobStore = getJobStoreOrThrow() as OrchidJobStore;
         const events = getEventsRuntime<{
-            jobStore: OrchidJobStore;
-            signalQueue: OrchidSignalQueue;
+            signalQueue?: OrchidSignalQueue;
         }>();
         const params = request.params as { runId: string };
-        const run = await events.jobStore.get(params.runId);
+        const run = await jobStore.get(params.runId);
         if (!run || !isRunVisible(run, auth)) {
             return reply.status(404).send({ detail: "not found" });
+        }
+        if (!events.signalQueue) {
+            return reply.status(503).send({ detail: "signal queue not configured" });
         }
         const queueMsgId = await events.signalQueue.enqueue(run.spec.signalId);
         return reply.send({

@@ -55,6 +55,14 @@ export async function prepareGraphState(
 
     const state: Record<string, unknown> = {
         messages,
+        // GraphState uses camelCase channel names (`chatId`). The
+        // older snake_case field (`chat_id`) is not declared as a
+        // LangGraph channel — it would be silently dropped at the
+        // channel boundary, leaving supervisor/agents reading
+        // `state.chatId === undefined` and breaking RAG scoping.
+        chatId,
+        // Back-compat: keep the snake_case alias for consumers that
+        // still read it directly from the raw state dict.
         chat_id: chatId,
     };
 

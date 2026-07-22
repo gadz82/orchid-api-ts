@@ -2,8 +2,7 @@ import type { OrchidScheduleRecord, OrchidScheduleStore } from "@orchid-ai/orchi
 import type { FastifyInstance } from "fastify";
 import fp from "fastify-plugin";
 
-import { resolveAuthContext } from "../auth.js";
-import { getAuthContext } from "../auth.js";
+import { resolveAuthContext, getAuthContext } from "../auth.js";
 import { getEventsRuntime } from "../context.js";
 import { requireAdmin } from "./_events.js";
 
@@ -13,8 +12,11 @@ async function schedulesRouter(fastify: FastifyInstance): Promise<void> {
     fastify.get("/schedules", async (request, reply) => {
         requireAdmin(getAuthContext(request));
         const events = getEventsRuntime<{
-            scheduleStore: OrchidScheduleStore;
+            scheduleStore?: OrchidScheduleStore;
         }>();
+        if (!events.scheduleStore) {
+            return reply.status(503).send({ detail: "schedule store not initialised" });
+        }
         const rows = Array.from(await events.scheduleStore.list());
         return reply.send({ items: rows.map((row) => serialiseSchedule(row)) });
     });
@@ -22,8 +24,11 @@ async function schedulesRouter(fastify: FastifyInstance): Promise<void> {
     fastify.get("/schedules/:scheduleId", async (request, reply) => {
         requireAdmin(getAuthContext(request));
         const events = getEventsRuntime<{
-            scheduleStore: OrchidScheduleStore;
+            scheduleStore?: OrchidScheduleStore;
         }>();
+        if (!events.scheduleStore) {
+            return reply.status(503).send({ detail: "schedule store not initialised" });
+        }
         const params = request.params as { scheduleId: string };
         const record = await events.scheduleStore.get(params.scheduleId);
         if (!record) {
@@ -35,9 +40,12 @@ async function schedulesRouter(fastify: FastifyInstance): Promise<void> {
     fastify.patch("/schedules/:scheduleId", async (request, reply) => {
         requireAdmin(getAuthContext(request));
         const events = getEventsRuntime<{
-            scheduleStore: OrchidScheduleStore;
+            scheduleStore?: OrchidScheduleStore;
             producers?: Array<{ refresh?(): Promise<void> }>;
         }>();
+        if (!events.scheduleStore) {
+            return reply.status(503).send({ detail: "schedule store not initialised" });
+        }
         const params = request.params as { scheduleId: string };
         const body = (request.body ?? {}) as {
             enabled?: boolean;

@@ -40,7 +40,7 @@ async function chatEventsRouter(fastify: FastifyInstance): Promise<void> {
         });
 
         const events = getEventsRuntime<{
-            jobStore: OrchidJobStore;
+            jobStore?: OrchidJobStore;
             eventStream?: {
                 subscribe(channel: string): AsyncIterable<{
                     type: string;
@@ -51,20 +51,24 @@ async function chatEventsRouter(fastify: FastifyInstance): Promise<void> {
                 }>;
             };
         }>();
-        const inFlight = await events.jobStore.list({
-            chatBindingChatId: params.chatId,
-            statuses: [JobStatus.PENDING, JobStatus.RUNNING],
-            limit: 200,
-        });
-        for (const run of inFlight) {
-            const data = JSON.stringify({
-                type: "chat.bloom.attached",
-                chat_id: params.chatId,
-                run_id: run.runId,
-                occurred_at: (run.startedAt ?? run.queuedAt).toISOString(),
-                payload: serialiseRun(run),
+        
+        // Check for in-flight jobs if jobStore is available
+        if (events.jobStore) {
+            const inFlight = await events.jobStore.list({
+                chatBindingChatId: params.chatId,
+                statuses: [JobStatus.PENDING, JobStatus.RUNNING],
+                limit: 200,
             });
-            reply.raw.write(`event: chat.bloom.attached\ndata: ${data}\n\n`);
+            for (const run of inFlight) {
+                const data = JSON.stringify({
+                    type: "chat.bloom.attached",
+                    chat_id: params.chatId,
+                    run_id: run.runId,
+                    occurred_at: (run.startedAt ?? run.queuedAt).toISOString(),
+                    payload: serialiseRun(run),
+                });
+                reply.raw.write(`event: chat.bloom.attached\ndata: ${data}\n\n`);
+            }
         }
 
         if (events.eventStream?.subscribe) {

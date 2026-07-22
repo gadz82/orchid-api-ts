@@ -36,15 +36,30 @@ async function streamingRouter(fastify: FastifyInstance): Promise<void> {
             const contentType = request.headers["content-type"] ?? "";
             let message = "";
             if (contentType.startsWith("multipart/form-data")) {
-                const parts = request.parts();
-                for await (const part of parts) {
-                    if (
-                        part.type !== "file" &&
-                        part.fieldname === "message" &&
-                        !message
-                    ) {
-                        message = String(part.value);
+                try {
+                    const parts = request.parts();
+                    for await (const part of parts) {
+                        if (
+                            part.type !== "file" &&
+                            part.fieldname === "message" &&
+                            !message
+                        ) {
+                            message = String(part.value);
+                        }
+                        // Consume file parts to prevent stream hang
+                        if (part.type === "file" && part.file) {
+                            try {
+                                // Drain the file stream
+                                for await (const _chunk of part.file) {
+                                    // Discard chunks
+                                }
+                            } catch {
+                                // Ignore file consumption errors
+                            }
+                        }
                     }
+                } catch {
+                    // Multipart parse error or no parts
                 }
             } else {
                 const body = request.body as { message?: string } | undefined;

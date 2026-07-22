@@ -4,7 +4,7 @@ import type { OrchidJobStore, JobRun } from "@orchid-ai/orchid/core";
 
 import { resolveAuthContext } from "../auth.js";
 import { getAuthContext } from "../auth.js";
-import { getEventsRuntime } from "../context.js";
+import { getEventsRuntime, getJobStoreOrThrow } from "../context.js";
 import { isRunVisible, serialiseRun } from "./_events.js";
 
 async function jobsRouter(fastify: FastifyInstance): Promise<void> {
@@ -36,9 +36,9 @@ async function jobsRouter(fastify: FastifyInstance): Promise<void> {
 
     fastify.get("/jobs/:triggerId/runs", async (request, reply) => {
         const auth = getAuthContext(request);
+        const jobStore = getJobStoreOrThrow() as OrchidJobStore;
         const events = getEventsRuntime<{
             triggerRegistry?: { get(triggerId: string): unknown };
-            jobStore: OrchidJobStore;
         }>();
         const params = request.params as { triggerId: string };
         const query = request.query as { status?: string; limit?: string };
@@ -46,7 +46,7 @@ async function jobsRouter(fastify: FastifyInstance): Promise<void> {
         if (!trigger) {
             return reply.status(404).send({ detail: "trigger not found" });
         }
-        const rows = await events.jobStore.list({
+        const rows = await jobStore.list({
             triggerId: params.triggerId,
             status: query.status,
             limit: query.limit ? Math.min(Number.parseInt(query.limit, 10) || 50, 500) : 50,

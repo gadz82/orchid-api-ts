@@ -176,23 +176,26 @@ async function messagesRouter(fastify: FastifyInstance): Promise<void> {
             // Multipart file parsing
             const files: Array<{ filename: string; data: Buffer; mimetype: string }> = [];
             try {
-                const body = request.body as AsyncIterable<unknown>;
-                if (
-                    body &&
-                    typeof (body as AsyncIterable<unknown>)[Symbol.asyncIterator] === "function"
-                ) {
-                    for await (const part of body as AsyncIterable<{
-                        file?: { filename: string; toBuffer(): Promise<Buffer> };
-                        mimetype?: string;
-                    }>) {
-                        if (part.file) {
-                            const name = part.file.filename;
-                            if (name) {
+                // Use request.parts() for proper multipart handling
+                const parts = request.parts();
+                for await (const part of parts) {
+                    if (part.type === "file" && part.file) {
+                        const name = part.filename;
+                        if (name) {
+                            try {
+                                // Collect all chunks into a buffer
+                                const chunks: Buffer[] = [];
+                                for await (const chunk of part.file) {
+                                    chunks.push(Buffer.from(chunk));
+                                }
+                                const data = Buffer.concat(chunks);
                                 files.push({
                                     filename: name,
-                                    data: await part.file.toBuffer(),
+                                    data,
                                     mimetype: part.mimetype || "application/octet-stream",
                                 });
+                            } catch (fileErr) {
+                                // File read error, skip this file
                             }
                         }
                     }

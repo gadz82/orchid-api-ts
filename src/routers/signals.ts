@@ -14,8 +14,11 @@ async function signalsRouter(fastify: FastifyInstance): Promise<void> {
         const auth = getAuthContext(request);
         requireAdmin(auth);
         const events = getEventsRuntime<{
-            signalStore: OrchidSignalStore;
+            signalStore?: OrchidSignalStore;
         }>();
+        if (!events.signalStore) {
+            return reply.status(503).send({ detail: "signal store not initialised" });
+        }
         const query = request.query as {
             type?: string;
             source?: string;
@@ -35,8 +38,11 @@ async function signalsRouter(fastify: FastifyInstance): Promise<void> {
     fastify.get("/signals/:signalId", async (request, reply) => {
         const auth = getAuthContext(request);
         const events = getEventsRuntime<{
-            signalStore: OrchidSignalStore;
+            signalStore?: OrchidSignalStore;
         }>();
+        if (!events.signalStore) {
+            return reply.status(503).send({ detail: "signal store not initialised" });
+        }
         const params = request.params as { signalId: string };
         const signal = await events.signalStore.get(params.signalId);
         if (!signal || !isSignalVisible(signal, auth)) {
@@ -49,9 +55,15 @@ async function signalsRouter(fastify: FastifyInstance): Promise<void> {
         const auth = getAuthContext(request);
         requireAdmin(auth);
         const events = getEventsRuntime<{
-            signalStore: OrchidSignalStore;
-            signalQueue: OrchidSignalQueue;
+            signalStore?: OrchidSignalStore;
+            signalQueue?: OrchidSignalQueue;
         }>();
+        if (!events.signalStore) {
+            return reply.status(503).send({ detail: "signal store not initialised" });
+        }
+        if (!events.signalQueue) {
+            return reply.status(503).send({ detail: "signal queue not initialised" });
+        }
         const params = request.params as { signalId: string };
         const signal = await events.signalStore.get(params.signalId);
         if (!signal || signal.tenantKey !== auth.tenantKey) {
