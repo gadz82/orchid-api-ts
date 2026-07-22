@@ -93,6 +93,22 @@ export async function setupOrchid(settings?: Settings): Promise<void> {
         runtimeOverrides: { upload_namespace: s.upload_namespace },
     };
 
+    // Auto-discover and register RAG backend plugins before building the
+    // Orchid facade. Each plugin self-registers its vector/docStore/graph
+    // backends on import (side-effect). The import is best-effort — if the
+    // plugin package isn't installed, the backend simply won't be available.
+    for (const pluginPkg of [
+        "@orchid-ai/orchid-rag-qdrant",
+        "@orchid-ai/orchid-rag-chroma",
+        "@orchid-ai/orchid-rag-neo4j",
+    ]) {
+        try {
+            await import(pluginPkg);
+        } catch {
+            // Plugin not installed — skip silently
+        }
+    }
+
     appCtx.orchid = (await Orchid.fromConfigPath(
         configPath || s.agents_config_path,
         overrides,
