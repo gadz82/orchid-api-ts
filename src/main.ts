@@ -47,6 +47,7 @@ const CONTENT_TYPES: Record<string, string> = {
     ".pdf": "application/pdf",
 };
 
+// ORCHID-MEM: 01a1a0c1-ddbb-7def-aa2e-40d33e0309f1 — Fastify application factory
 export async function buildApp(opts?: BuildAppOptions): Promise<FastifyInstance> {
     const app = Fastify({
         logger: {
